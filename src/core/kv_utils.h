@@ -2,7 +2,7 @@
 #define DDCKV_KV_UTILS_H
 
 #include <infiniband/verbs.h>
-#include <cmath.c>
+#include <cmath>
 #include <pthread.h>
 #include <stdint.h>
 #include <unistd.h>
