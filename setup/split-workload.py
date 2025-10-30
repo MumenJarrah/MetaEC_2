@@ -4,7 +4,8 @@ import sys
 # wlNameList = [sys.argv[2]]
 wlNameList = ['a', 'b', 'c', 'd']
 # wlTemplateList = ["./workloads/workload{}.spec_trans", "./ycsb-small/workload{}_small.trans"]
-wlTemplateList = ["./workloads/{}.spec_trans"]
+# wlTemplateList = ["./workloads/{}.spec_trans"]
+wlTemplateList = ["./workloads/workload{}.spec_trans"]
 splitNum = int(sys.argv[1])
 
 for n in wlNameList:
