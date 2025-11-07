@@ -56,7 +56,7 @@ For each memory node, you should provide a configuration file `server_config.jso
   "ib_port_id": 1,
   "ib_gid_idx": 0,
   "server_base_addr": "0x10000000",
-  "server_data_len": 15032385536,
+  "server_data_len": 10737418240,
   "allocate_size": 134217728,
   "block_size": 16384,
   "subblock_size": 256,
