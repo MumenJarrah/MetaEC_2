@@ -1677,6 +1677,168 @@ int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int3
         num_total_operations_ = 0;
         num_local_operations_ = 0;
     }
+
+    int other_size = sizeof(KvKeyLen) + sizeof(KvValueLen) + sizeof(KvTail);
+    int pre_value_size = value_size - other_size - key_size;
+    if (pre_value_size <= 0) {
+        RDMA_LOG_IF(2, if_print_log) << "invalid pre_value_size: " << pre_value_size
+                                     << " (value_size=" << value_size << " other_size=" << other_size
+                                     << " key_size=" << key_size << ")";
+        fclose(workload_file);
+        return -1;
+    }
+
+    char operation_buf[16];
+    char table_buf[16];
+    // use a temporary key buffer bigger than key_size to avoid overflow on fscanf
+    const int KEY_TMP_MAX = 512;
+    char key_tmp[KEY_TMP_MAX];
+    // value_buf used to hold pre_value_size bytes created by convertToBase62
+    std::vector<char> value_buf_v(pre_value_size);
+    char *value_buf = value_buf_v.data();
+
+    // count total operations
+    num_total_operations_ = 0;
+    rewind(workload_file);
+    while (fscanf(workload_file, "%15s %15s %511s", operation_buf, table_buf, key_tmp) == 3) {
+        num_total_operations_ ++;
+    }
+    if (num_ops == -1) {
+        num_local_operations_ = num_total_operations_;
+    } else {
+        num_local_operations_ = (st_idx + num_ops > num_total_operations_) ? num_total_operations_ - st_idx : num_ops;
+    }
+    print_args("load operations:", num_local_operations_);
+
+    kv_info_list_    = new KVInfo[num_local_operations_];
+    kv_req_ctx_list_ = new KVReqCtx[num_local_operations_];
+    if (kv_info_list_ == NULL || kv_req_ctx_list_ == NULL) {
+        printf("failed to allocate kv_info_list or kv_req_ctx_list\n");
+        fclose(workload_file);
+        abort();
+    }
+
+    // compute per-entry size and check buffer space
+    size_t entry_size = sizeof(KvKeyLen) + sizeof(KvValueLen) + (size_t)key_size + (size_t)pre_value_size + sizeof(KvTail);
+    if (entry_size == 0 || entry_size > (size_t)CLINET_INPUT_BUF_LEN) {
+        RDMA_LOG_IF(2, if_print_log) << "invalid entry_size: " << entry_size;
+        fclose(workload_file);
+        return -1;
+    }
+
+    uint8_t key_len_buf[sizeof(KvKeyLen)];
+    uint8_t value_len_buf[sizeof(KvValueLen)];
+    uint8_t crc_buf[sizeof(KvTail)];
+    const char* delimiter_value = "-laitini-";
+
+    // prepare to fill input buffer per entry
+    uint64_t used_len = 0;
+    rewind(workload_file);
+
+    int processed = 0;
+    for (int i = 0; i < st_idx + num_local_operations_; i++) {
+        ret = fscanf(workload_file, "%15s %15s %511s", operation_buf, table_buf, key_tmp);
+        if (ret != 3) {
+            RDMA_LOG_IF(2, if_print_log) << "unexpected/truncated workload line at index " << i << " (fscanf returned " << ret << ")";
+            break;
+        }
+        if (i < st_idx) continue;
+
+        // truncate key safely to key_size-1 (reserve for NUL if needed)
+        size_t key_len = strnlen(key_tmp, KEY_TMP_MAX);
+        if ((int)key_len > key_size) {
+            RDMA_LOG_IF(3, if_print_log) << "truncating key length " << key_len << " to key_size " << key_size;
+            key_len = (size_t)key_size;
+        }
+
+        // ensure there is enough room in input buffer for this entry
+        if (used_len + entry_size > (size_t)CLINET_INPUT_BUF_LEN) {
+            RDMA_LOG_IF(2, if_print_log) << "input buffer overflow prevented at op " << i
+                                         << " (used_len=" << used_len << ", entry_size=" << entry_size
+                                         << ", CLINET_INPUT_BUF_LEN=" << CLINET_INPUT_BUF_LEN << ")";
+            fclose(workload_file);
+            return -1;
+        }
+
+        // compute base pointer for this entry
+        uint8_t * entry_ptr = (uint8_t *)input_buf_ + used_len;
+
+        // pointers into the entry
+        KvKeyLen * kvkeylen = (KvKeyLen *)entry_ptr;
+        KvValueLen * kvvaluelen = (KvValueLen *)(entry_ptr + sizeof(KvKeyLen));
+        void * key_st_addr = (void *)(entry_ptr + sizeof(KvKeyLen) + sizeof(KvValueLen));
+        void * value_st_addr = (void *)((uint8_t *)key_st_addr + key_size);
+        KvTail * kvtail = (KvTail *)((uint8_t *)entry_ptr + sizeof(KvKeyLen) + sizeof(KvValueLen) + key_size + pre_value_size);
+
+        // fill key area: copy truncated key and zero-pad remaining bytes
+        memset(key_st_addr, 0, (size_t)key_size);
+        memcpy(key_st_addr, key_tmp, key_len > (size_t)key_size ? (size_t)key_size : key_len);
+
+        // build value into value_buf
+        convertToBase62(i, pre_value_size, client_id, delimiter_value, value_buf);
+
+        // copy value safely
+        memcpy(value_st_addr, value_buf, (size_t)pre_value_size);
+
+        // fill lengths and crc (as original)
+        int len = sizeof(KvKeyLen);
+        int val = (int)key_len;
+        int_to_char(val, key_len_buf, len);
+        memcpy(kvkeylen, key_len_buf, sizeof(key_len_buf));
+
+        len = sizeof(KvValueLen);
+        val = pre_value_size;
+        int_to_char(val, value_len_buf, len);
+        memcpy(kvvaluelen, value_len_buf, sizeof(value_len_buf));
+
+        len = sizeof(KvTail);
+        val = 0; // crc field default 0 (original used crc variable)
+        int_to_char(val, crc_buf, len);
+        memcpy(kvtail, crc_buf, sizeof(crc_buf));
+
+        // fill kv_info and ctx entries
+        kv_info_list_[processed].key_len = (uint32_t)key_len;
+        kv_info_list_[processed].value_len = (uint32_t)pre_value_size;
+        kv_info_list_[processed].l_addr  = (void *)entry_ptr;
+        kv_info_list_[processed].lkey = input_buf_mr_->lkey;
+
+        kv_req_ctx_list_[processed].kv_all_len = (uint32_t)entry_size; // entire entry size
+        kv_req_ctx_list_[processed].kv_info = &kv_info_list_[processed];
+
+        // initialize context: pass base input_buf pointer and offset used_len (matching existing signature)
+        init_kv_req_ctx_plus_ycsb(&kv_req_ctx_list_[processed], operation_buf, (uint64_t)input_buf_, used_len);
+
+        processed++;
+        used_len += entry_size;
+    }
+
+    // adjust counts in case we hit EOF earlier
+    if ((uint32_t)processed < (uint32_t)num_local_operations_) {
+        num_local_operations_ = processed;
+    }
+    num_total_operations_ = num_total_operations_; // already counted earlier
+
+    print_mes("load finished~");
+    fclose(workload_file);
+    return 0;
+}
+
+/*
+int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int32_t num_ops){
+    RDMA_LOG_IF(3, if_print_log) << "load " << st_idx << " " << num_ops;
+    int ret = 0;
+    FILE * workload_file = fopen(fname, "r");
+    if(workload_file == NULL){
+        RDMA_LOG_IF(2, if_print_log) << "failed to open: " << fname;
+        return -1;
+    }
+    // clear pre struct
+    if(num_total_operations_ != 0){
+        delete [] kv_info_list_;
+        delete [] kv_req_ctx_list_;
+        num_total_operations_ = 0;
+        num_local_operations_ = 0;
+    }
     int other_size = sizeof(KvKeyLen) + sizeof(KvValueLen) + sizeof(KvTail);
     int pre_value_size = value_size - other_size - key_size;
     char operation_buf[16];
@@ -1751,6 +1913,7 @@ int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int3
     print_mes("load finished~");
     fclose(workload_file);
 }
+*/
 
 int Client::load_kv_req_file_twitter(const char * fname, uint32_t st_idx, int32_t num_ops){
     print_mes("load kv req~");
