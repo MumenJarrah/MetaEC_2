@@ -1661,16 +1661,18 @@ int Client::load_kv_req(int num_op, const char * op){
     }
     print_mes("load finished~");
 }
+
 int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int32_t num_ops){
     RDMA_LOG_IF(3, if_print_log) << "load " << st_idx << " " << num_ops;
     int ret = 0;
     FILE * workload_file = fopen(fname, "r");
-    if(workload_file == NULL){
+    if (workload_file == NULL) {
         RDMA_LOG_IF(2, if_print_log) << "failed to open: " << fname;
         return -1;
     }
+
     // clear pre struct
-    if(num_total_operations_ != 0){
+    if (num_total_operations_ != 0) {
         delete [] kv_info_list_;
         delete [] kv_req_ctx_list_;
         num_total_operations_ = 0;
@@ -1689,24 +1691,30 @@ int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int3
 
     char operation_buf[16];
     char table_buf[16];
+
+    // use a temporary key buffer larger than key_size to safely read tokens
     const int KEY_TMP_MAX = 512;
     char key_tmp[KEY_TMP_MAX];
+
+    // value buffer for building the value payload
     std::vector<char> value_buf_v(pre_value_size);
     char *value_buf = value_buf_v.data();
 
-    // count total operations
+    // Count total operations safely (bounded read)
     num_total_operations_ = 0;
     rewind(workload_file);
     while (fscanf(workload_file, "%15s %15s %511s", operation_buf, table_buf, key_tmp) == 3) {
-        num_total_operations_ ++;
+        num_total_operations_++;
     }
+
     if (num_ops == -1) {
         num_local_operations_ = num_total_operations_;
     } else {
-        num_local_operations_ = (st_idx + num_ops > num_total_operations_) ? num_total_operations_ - st_idx : num_ops;
+        num_local_operations_ = (st_idx + num_ops > num_total_operations_) ? (num_total_operations_ - st_idx) : num_ops;
     }
     print_args("load operations:", num_local_operations_);
 
+    // allocate arrays
     kv_info_list_    = new KVInfo[num_local_operations_];
     kv_req_ctx_list_ = new KVReqCtx[num_local_operations_];
     if (kv_info_list_ == NULL || kv_req_ctx_list_ == NULL) {
@@ -1715,6 +1723,7 @@ int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int3
         abort();
     }
 
+    // compute per-entry size (fixed layout)
     size_t entry_size = sizeof(KvKeyLen) + sizeof(KvValueLen) + (size_t)key_size + (size_t)pre_value_size + sizeof(KvTail);
     if (entry_size == 0 || entry_size > (size_t)CLINET_INPUT_BUF_LEN) {
         RDMA_LOG_IF(2, if_print_log) << "invalid entry_size: " << entry_size;
@@ -1727,13 +1736,14 @@ int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int3
     uint8_t crc_buf[sizeof(KvTail)];
     const char* delimiter_value = "-laitini-";
 
-    // base pointer variable (lvalue) for init_kv_req_ctx_plus_ycsb
+    // lvalue base pointer and used_len (pass by reference to init function)
     uint64_t input_buf_ptr = (uint64_t)input_buf_;
     uint64_t used_len = 0;
-    rewind(workload_file);
 
+    // parse and fill entries
+    rewind(workload_file);
     int processed = 0;
-    for (int i = 0; i < st_idx + num_local_operations_; i++) {
+    for (int i = 0; i < st_idx + num_local_operations_; ++i) {
         ret = fscanf(workload_file, "%15s %15s %511s", operation_buf, table_buf, key_tmp);
         if (ret != 3) {
             RDMA_LOG_IF(2, if_print_log) << "unexpected/truncated workload line at index " << i << " (fscanf returned " << ret << ")";
@@ -1741,12 +1751,14 @@ int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int3
         }
         if (i < st_idx) continue;
 
+        // safe key length
         size_t key_len = strnlen(key_tmp, KEY_TMP_MAX);
         if ((int)key_len > key_size) {
             RDMA_LOG_IF(3, if_print_log) << "truncating key length " << key_len << " to key_size " << key_size;
             key_len = (size_t)key_size;
         }
 
+        // ensure space for this entry
         if (used_len + entry_size > (size_t)CLINET_INPUT_BUF_LEN) {
             RDMA_LOG_IF(2, if_print_log) << "input buffer overflow prevented at op " << i
                                          << " (used_len=" << used_len << ", entry_size=" << entry_size
@@ -1755,7 +1767,8 @@ int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int3
             return -1;
         }
 
-        uint8_t * entry_ptr = (uint8_t *)input_buf_ + used_len;
+        // compute base pointer for this entry in the input buffer
+        uint8_t *entry_ptr = (uint8_t *)input_buf_ + used_len;
 
         KvKeyLen * kvkeylen = (KvKeyLen *)entry_ptr;
         KvValueLen * kvvaluelen = (KvValueLen *)(entry_ptr + sizeof(KvKeyLen));
@@ -1763,15 +1776,15 @@ int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int3
         void * value_st_addr = (void *)((uint8_t *)key_st_addr + key_size);
         KvTail * kvtail = (KvTail *)((uint8_t *)entry_ptr + sizeof(KvKeyLen) + sizeof(KvValueLen) + key_size + pre_value_size);
 
-        // key: zero-pad then copy
+        // write key area (zero-pad then copy truncated key)
         memset(key_st_addr, 0, (size_t)key_size);
         memcpy(key_st_addr, key_tmp, key_len > (size_t)key_size ? (size_t)key_size : key_len);
 
-        // build and copy value
+        // build value and copy
         convertToBase62(i, pre_value_size, client_id, delimiter_value, value_buf);
         memcpy(value_st_addr, value_buf, (size_t)pre_value_size);
 
-        // lengths & crc
+        // fill lengths and crc
         int len = sizeof(KvKeyLen);
         int val = (int)key_len;
         int_to_char(val, key_len_buf, len);
@@ -1783,7 +1796,7 @@ int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int3
         memcpy(kvvaluelen, value_len_buf, sizeof(value_len_buf));
 
         len = sizeof(KvTail);
-        val = 0;
+        val = 0; // crc default 0
         int_to_char(val, crc_buf, len);
         memcpy(kvtail, crc_buf, sizeof(crc_buf));
 
@@ -1811,7 +1824,6 @@ int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int3
     fclose(workload_file);
     return 0;
 }
-
 /*
 int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int32_t num_ops){
     RDMA_LOG_IF(3, if_print_log) << "load " << st_idx << " " << num_ops;
