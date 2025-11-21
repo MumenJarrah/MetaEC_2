@@ -801,11 +801,17 @@ bool Client::test_sync_read_async(){
     sr_list->num_sr = 1;
     sr_list->server_id = 0;
     sr_list->sr_list = &sr;
-    while(1){
+    int sync_read_iter = 0;
+    while (1) {
         comp_wrid_map.clear();
         send_one_sr_list(sr_list, &comp_wrid_map);
         poll_completion(comp_wrid_map);
         uint64_t read_value = *(uint64_t *)local_buf_;
+        sync_read_iter++;
+        if ((sync_read_iter % 1000) == 0) {
+            RDMA_LOG_IF(3, if_print_log) << "sync read value: " << read_value \
+                << " expected: " << (all_clients * num_cn) << " iter: " << sync_read_iter;
+        }
         if (read_value == all_clients * num_cn) {
             break;
         }
