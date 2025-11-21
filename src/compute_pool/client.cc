@@ -85,7 +85,7 @@ Client::Client(struct GlobalConfig * conf) {
     // allocate bucket memory
     local_buf_ = mmap(NULL, local_buf_sz, PROT_READ | PROT_WRITE, 
         MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
-    while(local_buf_ == NULL){
+    while(local_buf_ == MAP_FAILED){
         print_sp("local_buf_ allocate error, try again~");
         sleep(1);
         local_buf_ = mmap(NULL, local_buf_sz, PROT_READ | PROT_WRITE, 
@@ -102,14 +102,14 @@ Client::Client(struct GlobalConfig * conf) {
 
     // allocate data memory
     int input_buf_len = CLINET_INPUT_BUF_LEN;
-    input_buf_ = mmap(NULL, input_buf_len, PROT_READ | PROT_WRITE, 
+        input_buf_ = mmap(NULL, input_buf_len, PROT_READ | PROT_WRITE, 
             MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
-    while(input_buf_ == NULL){
+        while(input_buf_ == MAP_FAILED){
         print_sp("input_buf_ allocate error, try again~");
         sleep(1);
         input_buf_ = mmap(NULL, input_buf_len, PROT_READ | PROT_WRITE, 
             MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
-    }
+        }
     input_buf_mr_ = ibv_reg_mr(ib_info.ib_pd, input_buf_, input_buf_len, 
         IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ);
     while(input_buf_mr_ == NULL){
@@ -2160,7 +2160,7 @@ void Client::init_encoding_mm_space(){
     uint64_t buf_size = CLIENT_PARITY_BUF + CLINET_METADATA_BUF + CLIENT_ENCODING_BUCKET_LEN;
     ectx->buf_ = mmap(NULL, buf_size, PROT_READ | PROT_WRITE, 
             MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
-    while(ectx->buf_ == NULL){
+    while(ectx->buf_ == MAP_FAILED){
         RDMA_LOG_IF(2, if_print_log) << "server:" << client_id << " " <<
             "ectx->buf_ allocate error, try again";
         sleep(1);
