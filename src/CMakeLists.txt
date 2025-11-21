@@ -28,6 +28,14 @@ list(APPEND source_ddckv
 
 add_library(libddckv STATIC ${source_ddckv})
 
+# Propagate RDMA log level compile definition from top-level CMake option
+if(DEFINED RDMA_LOG_LEVEL_DEF)
+    target_compile_definitions(libddckv PRIVATE RDMA_LOG_LEVEL=${RDMA_LOG_LEVEL_DEF})
+else()
+    # default to DBG if not defined
+    target_compile_definitions(libddckv PRIVATE RDMA_LOG_LEVEL=1)
+endif()
+
 target_compile_options(
     libddckv
     PRIVATE

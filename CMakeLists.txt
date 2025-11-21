@@ -16,6 +16,18 @@ SET(CMAKE_C_COMPILER /home/hadoop/lt/gccenv/gcc-7/bin)
 find_package(Boost REQUIRED)
 set(CMAKE_BUILD_TYPE Release)
 
+# Option to enable/disable RDMA logging at configure time.
+# Usage: cmake -DENABLE_RDMA_LOG=ON|OFF ..
+option(ENABLE_RDMA_LOG "Enable RDMA logging (ON/OFF)" ON)
+if(ENABLE_RDMA_LOG)
+	# RDMA log level numeric values match the enum in logging.hpp (DBG=1)
+	set(RDMA_LOG_LEVEL_DEF 1 CACHE STRING "RDMA log level numeric")
+else()
+	# NONE disables logging (NONE=7)
+	set(RDMA_LOG_LEVEL_DEF 7 CACHE STRING "RDMA log level numeric")
+endif()
+message(STATUS "ENABLE_RDMA_LOG=${ENABLE_RDMA_LOG} RDMA_LOG_LEVEL_DEF=${RDMA_LOG_LEVEL_DEF}")
+
 include_directories(src)
 include_directories(micro-test)
 #include_directories(module-test)
