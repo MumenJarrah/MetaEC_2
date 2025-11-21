@@ -468,6 +468,13 @@ int UDPNetworkManager::rdma_post_sr_list_batch_sync(std::vector<IbvSrList *> & s
 
 bool UDPNetworkManager::is_all_complete(const std::map<uint64_t, bool> & wr_id_comp_map) {
     std::map<uint64_t, bool>::const_iterator it;
+    // Print status of each wr id for debugging
+    for (it = wr_id_comp_map.begin(); it != wr_id_comp_map.end(); it ++) {
+        uint64_t wrid = it->first;
+        bool done = it->second;
+        printf("is_all_complete: wrid=%llu done=%d\n", (unsigned long long)wrid, (int)done);
+    }
+    fflush(stdout);
     for (it = wr_id_comp_map.begin(); it != wr_id_comp_map.end(); it ++) {
         if (it->second == false) {
             return false;
