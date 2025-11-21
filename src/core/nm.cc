@@ -518,13 +518,10 @@ void UDPNetworkManager::nm_thread_polling() {
         for (int i = 0; i < polled_num; i ++) {
             uint64_t wr_id = wc_buf[i].wr_id;
             poll_from_server_id = (wr_id / SERVER_WR_ID) % 10;
-            printf("nm_thread_polling: polled wr_id=%llu status=%d poll_from_server_id=%d\n",
-                   (unsigned long long)wr_id, wc_buf[i].status, poll_from_server_id);
-            fflush(stdout);
             if (wc_buf[i].status != IBV_WC_SUCCESS) {
                 printf("%ld client  %ld polled state %d (fb: %ld dst: %ld lwrid: %ld)\n", server_id_, wr_id, wc_buf[i].status, 
                     wr_id / CORO_WR_ID, poll_from_server_id, wr_id % SERVER_WR_ID);
-                    exit(0);
+                exit(0);
             }
             struct ibv_wc * store_wc = (struct ibv_wc *)malloc(sizeof(struct ibv_wc));
             memcpy(store_wc, &wc_buf[i], sizeof(struct ibv_wc));
@@ -535,6 +532,13 @@ void UDPNetworkManager::nm_thread_polling() {
             }
             tbb::concurrent_hash_map<uint64_t, struct ibv_wc *>::value_type value(wr_id, store_wc);
             wrid_wc_map_.insert(std::move(value));
+            /* print after insertion so checkers see the entry */
+            printf("nm_thread_polling: inserted wr_id=%llu into wrid_wc_map_\n", (unsigned long long)wr_id);
+            fflush(stdout);
+            /* also print that we polled it (status OK) */
+            printf("nm_thread_polling: polled wr_id=%llu status=%d poll_from_server_id=%d\n",
+                   (unsigned long long)wr_id, wc_buf[i].status, poll_from_server_id);
+            fflush(stdout);
         }
     }
 }
