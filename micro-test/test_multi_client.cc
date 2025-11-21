@@ -96,8 +96,9 @@ int test_client_tpt_thread(Client & client, RunClientArgs * args) {
         client.client_init_req_latency(MAX_TEST, client.kv_req_ctx_list_[0].req_type);
     }
     client.print_mes("load finish and wait~");
-    client.test_sync_faa_async();
-    client.test_sync_read_async();
+    // client.test_sync_faa_async();
+    // client.test_sync_read_async();
+    sleep(2);
     client.print_mes("sync!");
     boost::fibers::barrier global_barrier(client.num_coroutines_ + 1);
     volatile bool should_stop = false;
