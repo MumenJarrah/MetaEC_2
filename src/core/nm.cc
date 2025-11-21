@@ -485,14 +485,25 @@ bool UDPNetworkManager::is_all_complete(const std::map<uint64_t, bool> & wr_id_c
 
 int UDPNetworkManager::nm_check_completion(std::map<uint64_t, bool> & wait_wrid_wc_map) {
     std::map<uint64_t, bool>::iterator it;
+    printf("nm_check_completion: checking %zu wait wrids\n", wait_wrid_wc_map.size());
+    fflush(stdout);
+    int found_count = 0;
     for (it = wait_wrid_wc_map.begin(); it != wait_wrid_wc_map.end(); it ++) {
         uint64_t wrid = it->first;
         tbb::concurrent_hash_map<uint64_t, struct ibv_wc *>::const_accessor acc;
         if (wrid_wc_map_.find(acc, wrid)) {
             wait_wrid_wc_map[wrid] = true;
             wrid_wc_map_.erase(acc);
+            printf("nm_check_completion: found completion for wrid=%llu\n", (unsigned long long)wrid);
+            fflush(stdout);
+            found_count++;
+        } else {
+            printf("nm_check_completion: no completion for wrid=%llu\n", (unsigned long long)wrid);
+            fflush(stdout);
         }
     }
+    printf("nm_check_completion: found_count=%d\n", found_count);
+    fflush(stdout);
     return 0;
 }
 
@@ -507,6 +518,9 @@ void UDPNetworkManager::nm_thread_polling() {
         for (int i = 0; i < polled_num; i ++) {
             uint64_t wr_id = wc_buf[i].wr_id;
             poll_from_server_id = (wr_id / SERVER_WR_ID) % 10;
+            printf("nm_thread_polling: polled wr_id=%llu status=%d poll_from_server_id=%d\n",
+                   (unsigned long long)wr_id, wc_buf[i].status, poll_from_server_id);
+            fflush(stdout);
             if (wc_buf[i].status != IBV_WC_SUCCESS) {
                 printf("%ld client  %ld polled state %d (fb: %ld dst: %ld lwrid: %ld)\n", server_id_, wr_id, wc_buf[i].status, 
                     wr_id / CORO_WR_ID, poll_from_server_id, wr_id % SERVER_WR_ID);
