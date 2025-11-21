@@ -773,9 +773,12 @@ bool Client::test_sync_faa_async(){
     sr_list->num_sr = 1;
     sr_list->server_id = 0;
     sr_list->sr_list = &sr;
+    printf("test_sync_faa_async: about to post FAA wr_id=%llu\n", (unsigned long long)sr_list->sr_list[0].wr_id);
     std::map<uint64_t, bool> comp_wrid_map;
     send_one_sr_list(sr_list, &comp_wrid_map);
+    printf("test_sync_faa_async: posted FAA, polling for completion...\n");
     poll_completion(comp_wrid_map);
+    printf("test_sync_faa_async: FAA completed\n");
     return 0;
 }
 
@@ -6988,7 +6991,11 @@ void Client::send_one_sr_list(IbvSrList * sr_list, map<uint64_t, bool> *comp_wri
     comp_wrid_map[0][sr_list[0].sr_list[num_sr - 1].wr_id] = false;
     struct ibv_qp * send_qp = nm_->rc_qp_list_[sr_list[0].server_id]; 
     struct ibv_send_wr * bad_wr;
-    ibv_post_send(send_qp, sr_list[0].sr_list, &bad_wr);
+    int post_ret = ibv_post_send(send_qp, sr_list[0].sr_list, &bad_wr);
+    if (post_ret != 0) {
+        printf("send_one_sr_list: ibv_post_send returned %d for wr_id=%llu\n",
+               post_ret, (unsigned long long)sr_list[0].sr_list[num_sr - 1].wr_id);
+    }
 }
 
 void Client::kv_update_get_stripe_meta(KVReqCtx * ctx){
