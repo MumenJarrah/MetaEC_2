@@ -777,6 +777,7 @@ bool Client::test_sync_faa_async(){
     std::map<uint64_t, bool> comp_wrid_map;
     send_one_sr_list(sr_list, &comp_wrid_map);
     printf("test_sync_faa_async: posted FAA, polling for completion...\n");
+    sleep(2);
     poll_completion(comp_wrid_map);
     printf("test_sync_faa_async: FAA completed\n");
     return 0;
