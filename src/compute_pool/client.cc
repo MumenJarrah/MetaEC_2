@@ -809,8 +809,10 @@ bool Client::test_sync_read_async(){
         uint64_t read_value = *(uint64_t *)local_buf_;
         sync_read_iter++;
         if ((sync_read_iter % 1000) == 0) {
-            RDMA_LOG_IF(3, if_print_log) << "sync read value: " << read_value \
-                << " expected: " << (all_clients * num_cn) << " iter: " << sync_read_iter;
+            printf("sync read value: %llu expected: %llu iter: %d\n",
+                   (unsigned long long)read_value,
+                   (unsigned long long)(all_clients * num_cn),
+                   sync_read_iter);
         }
         if (read_value == all_clients * num_cn) {
             break;
