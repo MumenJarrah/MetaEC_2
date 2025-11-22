@@ -43,7 +43,7 @@ target_compile_options(
     # ${CMAKE_CXX_FLAGS_DEBUG}
     "-g"
     "-fsanitize=address,undefined"
-    -fno-omit-frame-pointer
+    "-fno-omit-frame-pointer"
     "-D_DEBUG"
 )
 

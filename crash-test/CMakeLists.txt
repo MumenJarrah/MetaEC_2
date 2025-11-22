@@ -5,13 +5,30 @@ add_executable(cncrash_test cncrash_test.cc)
 add_library(mncrash_test_fr mncrash_test_fr.cc)
 add_executable(mncrash_test_fr_multi_client mncrash_test_fr_multi_clients.cc)
 
-target_compile_options(mncrash_test_multi_client
-    PRIVATE
-    # "-O2"
-    ${CMAKE_CXX_FLAGS_DEBUG}
-    # "-g"
-    # "-D_DEBUG"
+# Common sanitizer flags for crash tests
+set(SANITIZER_COMPILE_FLAGS
+    "-O0"
+    "-g"
+    "-fsanitize=address,undefined"
+    "-fno-omit-frame-pointer"
+    "-D_DEBUG"
 )
+
+set(SANITIZER_LINK_FLAGS
+    "-fsanitize=address,undefined"
+    "-fno-omit-frame-pointer"
+)
+
+foreach(tgt mncrash_test_multi_client cncrash_test mncrash_test_fr_multi_client)
+    target_compile_options(${tgt}
+        PRIVATE
+        ${SANITIZER_COMPILE_FLAGS}
+    )
+    target_link_options(${tgt}
+        PRIVATE
+        ${SANITIZER_LINK_FLAGS}
+    )
+endforeach()
 
 target_link_libraries(mncrash_test
     libddckv

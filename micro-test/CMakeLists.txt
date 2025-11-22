@@ -7,45 +7,41 @@ add_executable(test_serverfr test_serverfr.cc)
 add_executable(test_multi_clientfr test_multi_clientfr.cc)
 add_executable(test_race test_race.cc)
 
-target_compile_options(
-    test_multi_client
-    PRIVATE
+# Common sanitizer flags for all micro tests
+set(SANITIZER_COMPILE_FLAGS
     "-O0"
-    # ${CMAKE_CXX_FLAGS_DEBUG}
     "-g"
     "-fsanitize=address,undefined"
-    -fno-omit-frame-pointer
+    "-fno-omit-frame-pointer"
     "-D_DEBUG"
 )
 
-target_link_options(test_multi_client PRIVATE
-    -fsanitize=address,undefined
-    -fno-omit-frame-pointer
+set(SANITIZER_LINK_FLAGS
+    "-fsanitize=address,undefined"
+    "-fno-omit-frame-pointer"
 )
 
-target_link_options(test_server PRIVATE
-    -fsanitize=address,undefined
-    -fno-omit-frame-pointer
+set(SANITIZED_TESTS
+    test_server
+    test_multi_client
+    test_client_cache
+    test_memory_consumption
+    test_clientfr_latency
+    test_serverfr
+    test_multi_clientfr
+    test_race
 )
 
-target_link_options(test_memory_consumption PRIVATE
-    -fsanitize=address,undefined
-    -fno-omit-frame-pointer
-)
-
-target_link_options(test_clientfr_latency PRIVATE
-    -fsanitize=address,undefined
-    -fno-omit-frame-pointer
-)
-
-
+foreach(tgt ${SANITIZED_TESTS})
+    target_compile_options(${tgt} PRIVATE ${SANITIZER_COMPILE_FLAGS})
+    target_link_options(${tgt} PRIVATE ${SANITIZER_LINK_FLAGS})
+endforeach()
 
 target_link_libraries(test_server
     libddckv
     pthread
     ibverbs
 )
-
 
 target_link_libraries(test_client_cache
     libddckv
