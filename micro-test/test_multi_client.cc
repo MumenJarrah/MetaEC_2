@@ -99,13 +99,13 @@ typedef struct TagClientThreadArgs {
     pthread_barrier_t * b;
     uint32_t ops_cnt;
     uint32_t num_failed;
-    typedef struct TagEncArg {
-        volatile bool * should_stop;
-        Client * client;
-    } EncArg;
+    uint64_t tpt;
+} ClientThreadArgs;
+
+void * client_ops_thread(void * arg) {
     ClientThreadArgs * a = (ClientThreadArgs *)arg;
     Client * client = a->client;
-        EncArg * p = (EncArg *)arg;
+    if (a->ops_cnt == 0) {
         client->init_kvreq_space(a->coro_id, a->ops_st_idx, a->ops_num);
     }
     // wait for all threads to be ready
@@ -147,15 +147,20 @@ typedef struct TagClientThreadArgs {
     a->num_failed = num_failed;
     return NULL;
 }
+// Encoding thread argument structure
+typedef struct TagEncArg {
+    volatile bool * should_stop;
+    Client * client;
+} EncArg;
 
 void * encoding_thread_func(void * arg) {
-    struct EncArg { volatile bool * should_stop; Client * client; };
     EncArg * p = (EncArg *)arg;
     volatile bool * should_stop = p->should_stop;
     Client * client = p->client;
     while (*should_stop == false) {
         client->encoding_check_async();
-            EncArg * ea = (EncArg *)malloc(sizeof(EncArg));
+        usleep(1000);
+    }
     // wait for outstanding encoding
     while (client->ectx->if_encoding) {
         usleep(1000);
@@ -199,7 +204,6 @@ int test_client_tpt_thread(Client & client, RunClientArgs * args) {
     pthread_t encoding_th;
     void * enc_ctx = NULL;
     if(strcmp(args->op_type, "INSERT") == 0){
-        auto * e = (decltype(enc_ctx))malloc(sizeof(void*)*1);
         EncArg * ea = (EncArg *)malloc(sizeof(EncArg));
         ea->should_stop = &should_stop;
         ea->client = &client;
