@@ -1675,6 +1675,7 @@ int Client::load_kv_req(int num_op, const char * op){
         init_kv_req_ctx(&kv_req_ctx_list_[i], operation_buf);
     }
     print_mes("load finished~");
+    return 0;
 }
 
 int Client::load_kv_req_from_file_ycsb(const char * fname, uint32_t st_idx, int32_t num_ops){
