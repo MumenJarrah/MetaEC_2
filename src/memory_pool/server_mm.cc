@@ -207,7 +207,6 @@ int ServerMM::init_subtable() {
             RaceHashBucket * bucket = (RaceHashBucket *)cur_subtable_addr + j;
             bucket->local_depth = RACE_HASH_INIT_LOCAL_DEPTH;
             bucket->prefix = i;
-            bucket ++;
         }
     }
     big_subtable_alloc_map_.resize(max_big_subtable);
@@ -215,10 +214,9 @@ int ServerMM::init_subtable() {
         uint64_t cur_subtable_addr = (uint64_t)big_subtable_addr + i * roundup_256(BIG_SUBTABLE_LEN);
         big_subtable_alloc_map_[i] = 0;
         for (int j = 0; j < RACE_HASH_ADDRESSABLE_BUCKET_NUM; j ++) {
-            KvEcMetaBucket * bucket = (KvEcMetaBucket *)cur_subtable_addr + j; // j or j * 2
+            KvEcMetaBucket * bucket = (KvEcMetaBucket *)cur_subtable_addr + j;
             bucket->local_depth = 6;
             bucket->prefix = j;
-            bucket ++;
         }
     }
     return 0;
