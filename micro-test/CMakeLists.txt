@@ -40,7 +40,7 @@ target_link_options(test_clientfr_latency PRIVATE
 
 
 
-target_link_libraries(test_client_cache
+target_link_libraries(test_server
     libddckv
     pthread
     ibverbs
