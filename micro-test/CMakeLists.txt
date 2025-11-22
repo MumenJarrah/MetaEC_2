@@ -7,7 +7,7 @@ add_executable(test_serverfr test_serverfr.cc)
 add_executable(test_multi_clientfr test_multi_clientfr.cc)
 add_executable(test_race test_race.cc)
 
-# Common sanitizer flags for all micro tests
+# Common sanitizer flags for all micro tests (disabled for test_server due to huge page issues)
 set(SANITIZER_COMPILE_FLAGS
     "-O0"
     "-g"
@@ -22,7 +22,6 @@ set(SANITIZER_LINK_FLAGS
 )
 
 set(SANITIZED_TESTS
-    test_server
     test_multi_client
     test_client_cache
     test_memory_consumption
