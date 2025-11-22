@@ -234,24 +234,49 @@ int ServerMM::init_subtable() {
     for (int i = 0; i < max_small_subtable; i ++) {
         uint64_t cur_subtable_addr = (uint64_t)small_subtable_addr + i * roundup_256(SUBTABLE_LEN);
         small_subtable_alloc_map_[i] = 0;
-        // Zero initialize the entire subtable
-        memset((void *)cur_subtable_addr, 0, roundup_256(SUBTABLE_LEN));
+        // Zero initialize the entire subtable in chunks to avoid AddressSanitizer issues
+        uint64_t chunk_size = 4096; // 4KB chunks
+        for (uint64_t offset = 0; offset < roundup_256(SUBTABLE_LEN); offset += chunk_size) {
+            uint64_t to_clear = (offset + chunk_size <= roundup_256(SUBTABLE_LEN)) ? chunk_size : (roundup_256(SUBTABLE_LEN) - offset);
+            memset((void *)(cur_subtable_addr + offset), 0, to_clear);
+        }
     }
     big_subtable_alloc_map_.resize(max_big_subtable);
     for (int i = 0; i < max_big_subtable; i ++) {
         uint64_t cur_subtable_addr = (uint64_t)big_subtable_addr + i * roundup_256(BIG_SUBTABLE_LEN);
         big_subtable_alloc_map_[i] = 0;
-        // Zero initialize the entire subtable
-        memset((void *)cur_subtable_addr, 0, roundup_256(BIG_SUBTABLE_LEN));
+        // Zero initialize the entire subtable in chunks to avoid AddressSanitizer issues
+        uint64_t chunk_size = 4096; // 4KB chunks
+        for (uint64_t offset = 0; offset < roundup_256(BIG_SUBTABLE_LEN); offset += chunk_size) {
+            uint64_t to_clear = (offset + chunk_size <= roundup_256(BIG_SUBTABLE_LEN)) ? chunk_size : (roundup_256(BIG_SUBTABLE_LEN) - offset);
+            memset((void *)(cur_subtable_addr + offset), 0, to_clear);
+        }
     }
     return 0;
 }
 
 int ServerMM::init_hashtable() {
+    printf("init_hashtable() starting\n");
+    printf("  client_hash_area_off_: 0x%lx\n", client_hash_area_off_);
+    printf("  base_addr_: 0x%lx\n", base_addr_);
+    
     kv_ec_meta_root_addr = get_kv_ec_meta_addr();
+    printf("  kv_ec_meta_root_addr: 0x%lx\n", kv_ec_meta_root_addr);
+    
     stripe_meta_root_addr = get_stripe_meta_addr();
+    printf("  stripe_meta_root_addr: 0x%lx\n", stripe_meta_root_addr);
+    
     PL_root_addr = get_PL_addr();
+    printf("  PL_root_addr: 0x%lx\n", PL_root_addr);
+    
     metadata_root_addr = get_metadata_addr();
+    printf("  metadata_root_addr: 0x%lx\n", metadata_root_addr);
+    
+    printf("  roundup_256(ROOT_KV_META_LEN) = 0x%lx\n", roundup_256(ROOT_KV_META_LEN));
+    printf("  roundup_256(ROOT_STRIPE_META_LEN) = 0x%lx\n", roundup_256(ROOT_STRIPE_META_LEN));
+    printf("  roundup_256(ROOT_PL_LEN) = 0x%lx\n", roundup_256(ROOT_PL_LEN));
+    printf("  roundup_256(ROOT_METADATA_LEN) = 0x%lx\n", roundup_256(ROOT_METADATA_LEN));
+    
     init_subtable();
     return 0;
 }
