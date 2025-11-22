@@ -18,7 +18,36 @@ target_compile_options(
     "-D_DEBUG"
 )
 
-target_link_libraries(test_server
+target_link_options(test_multi_client PRIVATE
+    -fsanitize=address,undefined
+    -fno-omit-frame-pointer
+)
+
+target_link_options(test_server PRIVATE
+    -fsanitize=address,undefined
+    -fno-omit-frame-pointer
+)
+
+target_link_options(test_memory_consumption PRIVATE
+    -fsanitize=address,undefined
+    -fno-omit-frame-pointer
+)
+
+target_link_options(test_clientfr_latency PRIVATE
+    -fsanitize=address,undefined
+    -fno-omit-frame-pointer
+)
+
+
+
+target_link_libraries(test_client_cache
+    libddckv
+    pthread
+    ibverbs
+)
+
+
+target_link_libraries(test_client_cache
     libddckv
     pthread
     ibverbs

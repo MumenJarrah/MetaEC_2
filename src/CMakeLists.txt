@@ -47,6 +47,11 @@ target_compile_options(
     "-D_DEBUG"
 )
 
+target_link_options(libddckv PRIVATE
+    -fsanitize=address,undefined
+    -fno-omit-frame-pointer
+)
+
 target_link_libraries(libddckv /usr/local/lib/libboost_context.a ${Boost_LIBRARIES} boost_context boost_fiber tbb isal boost_coroutine)
 # target_link_libraries(libddckv ${Boost_LIBRARIES} boost_context boost_fiber tbb isal boost_coroutine profiler)
 
