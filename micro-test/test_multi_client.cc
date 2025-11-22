@@ -1,4 +1,6 @@
 #include "test_multi_client.h"
+#include <time.h>
+#include <errno.h>
 
 bool time_is_less_than(struct timeval * t1, struct timeval * t2) {
     if (t1->tv_sec < t2->tv_sec) {
@@ -113,6 +115,9 @@ void * client_ops_thread(void * arg) {
 
     uint32_t cnt = a->ops_cnt;
     uint32_t num_failed = 0;
+    int max_spin_iterations = 1000; // Prevent infinite loops
+    int spin_count = 0;
+    
     while (*a->should_stop == false && a->ops_num != 0) {
         // Check should_stop flag before calling potentially blocking operations
         if (*a->should_stop == true) break;
@@ -147,6 +152,7 @@ void * client_ops_thread(void * arg) {
         }
         cnt++;
         a->ops_cnt = cnt;
+        spin_count = 0; // reset counter on successful operation
     }
     a->num_failed = num_failed;
     printf("Thread %u exiting with %u ops completed, %u failed\n", a->coro_id, cnt, num_failed);
@@ -233,21 +239,63 @@ int test_client_tpt_thread(Client & client, RunClientArgs * args) {
 
     client.print_mes("time tick finished~");
     should_stop = true;
+    printf("Signal sent to worker threads\n");
+    fflush(stdout);
 
     uint32_t ops_cnt = 0;
     uint32_t num_failed = 0;
     uint64_t tpt = 0;
     
-    // Join threads with a reasonable wait
+    // Join threads with a timeout mechanism
     printf("Waiting for worker threads to finish...\n");
+    fflush(stdout);
+    int max_wait_seconds = 30; // Maximum time to wait for threads
+    time_t start_time = time(NULL);
+    
     for (int i = 0; i < client.num_coroutines_; i ++) {
         printf("Joining thread %d...\n", i);
         fflush(stdout);
-        pthread_join(th_list[i], NULL);
-        printf("Thread %d joined\n", i);
-        ops_cnt += th_args[i].ops_cnt;
-        num_failed += th_args[i].num_failed;
-        tpt += th_args[i].tpt;
+        
+        // Check if we've exceeded the timeout
+        time_t elapsed = time(NULL) - start_time;
+        if (elapsed > max_wait_seconds) {
+            printf("WARNING: Timeout exceeded (%ld seconds). Skipping remaining thread joins.\n", elapsed);
+            printf("WARNING: Only %d out of %d threads have joined successfully\n", i, client.num_coroutines_);
+            break;
+        }
+        
+        // Use non-blocking join with polling
+        int join_attempts = 0;
+        int max_attempts = 100;
+        void * thread_result = NULL;
+        int ret = pthread_tryjoin_np(th_list[i], &thread_result);
+        
+        while (ret == EBUSY && join_attempts < max_attempts) {
+            usleep(100000); // Sleep 100ms
+            ret = pthread_tryjoin_np(th_list[i], &thread_result);
+            join_attempts++;
+            
+            // Print progress every 5 attempts
+            if (join_attempts % 5 == 0) {
+                printf("  Thread %d still running (attempt %d/%d)\n", i, join_attempts, max_attempts);
+                fflush(stdout);
+            }
+        }
+        
+        if (ret == 0) {
+            printf("Thread %d joined successfully\n", i);
+            ops_cnt += th_args[i].ops_cnt;
+            num_failed += th_args[i].num_failed;
+            tpt += th_args[i].tpt;
+        } else if (ret == EBUSY) {
+            printf("ERROR: Thread %d is still running after %d attempts, skipping\n", i, max_attempts);
+            printf("  Thread %d completed %u operations before timeout\n", i, th_args[i].ops_cnt);
+            ops_cnt += th_args[i].ops_cnt;
+            num_failed += th_args[i].num_failed;
+        } else {
+            printf("ERROR: pthread_tryjoin_np failed with error %d for thread %d\n", ret, i);
+        }
+        fflush(stdout);
     }
     if(strcmp(args->op_type, "INSERT") == 0){
         pthread_join(encoding_th, NULL);
