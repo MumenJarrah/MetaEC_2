@@ -10,7 +10,7 @@ add_executable(test_race test_race.cc)
 target_compile_options(
     test_multi_client
     PRIVATE
-    "-O2"
+    "-O0"
     # ${CMAKE_CXX_FLAGS_DEBUG}
     "-g"
     "-D_DEBUG"

@@ -39,7 +39,7 @@ endif()
 target_compile_options(
     libddckv
     PRIVATE
-    "-O2"
+    "-O0"
     # ${CMAKE_CXX_FLAGS_DEBUG}
     "-g"
     "-D_DEBUG"
