@@ -89,6 +89,83 @@ int load_workload_1coro(Client & client) {
     return 0;
 }
 
+// Thread-based worker args (non-fiber)
+typedef struct TagClientThreadArgs {
+    Client * client;
+    uint32_t ops_st_idx;
+    uint32_t ops_num;
+    uint32_t coro_id;
+    volatile bool * should_stop;
+    pthread_barrier_t * b;
+    uint32_t ops_cnt;
+    uint32_t num_failed;
+    uint64_t tpt;
+} ClientThreadArgs;
+
+void * client_ops_thread(void * arg) {
+    ClientThreadArgs * a = (ClientThreadArgs *)arg;
+    Client * client = a->client;
+    if (a->ops_cnt == 0) {
+        client->init_kvreq_space(a->coro_id, a->ops_st_idx, a->ops_num);
+    }
+    // wait for all threads to be ready
+    pthread_barrier_wait(a->b);
+
+    uint32_t cnt = a->ops_cnt;
+    uint32_t num_failed = 0;
+    while (*a->should_stop == false && a->ops_num != 0) {
+        uint32_t idx = cnt % a->ops_num;
+        KVReqCtx * ctx = &client->kv_req_ctx_list_[idx + a->ops_st_idx];
+        ctx->should_stop = a->should_stop;
+        ctx->pre_ctx_index = idx;
+        switch (ctx->req_type) {
+        case KV_REQ_SEARCH: {
+            void * search_addr = client->kv_search(ctx);
+            if (search_addr == NULL) num_failed ++;
+            break;
+        }
+        case KV_REQ_INSERT: {
+            int ret = client->kv_insert(ctx);
+            if (ret == KV_OPS_FAIL_REDO || ret == KV_OPS_FAIL_RETURN) {
+                num_failed++;
+            }
+            break;
+        }
+        case KV_REQ_UPDATE:
+            client->kv_update(ctx);
+            break;
+        case KV_REQ_DELETE:
+            client->kv_delete(ctx);
+            break;
+        default:
+            client->kv_search(ctx);
+            break;
+        }
+        cnt++;
+        a->ops_cnt = cnt;
+    }
+    a->num_failed = num_failed;
+    return NULL;
+}
+
+void * encoding_thread_func(void * arg) {
+    struct EncArg { volatile bool * should_stop; Client * client; };
+    EncArg * p = (EncArg *)arg;
+    volatile bool * should_stop = p->should_stop;
+    Client * client = p->client;
+    while (*should_stop == false) {
+        client->encoding_check_async();
+        usleep(1000);
+    }
+    // wait for outstanding encoding
+    while (client->ectx->if_encoding) {
+        usleep(1000);
+    }
+    client->encoding_leave();
+    free(p);
+    return NULL;
+}
+
 int test_client_tpt_thread(Client & client, RunClientArgs * args) {
     int ret = 0;
     ret = client.load_kv_req(client.test_num, args->op_type);
@@ -96,51 +173,69 @@ int test_client_tpt_thread(Client & client, RunClientArgs * args) {
         client.client_init_req_latency(MAX_TEST, client.kv_req_ctx_list_[0].req_type);
     }
     client.print_mes("load finish and wait~");
-    // client.test_sync_faa_async();
-    // client.test_sync_read_async();
     sleep(2);
     client.print_mes("sync!");
-    boost::fibers::barrier global_barrier(client.num_coroutines_ + 1);
+
+    pthread_barrier_t global_barrier;
+    pthread_barrier_init(&global_barrier, NULL, client.num_coroutines_ + 1);
     volatile bool should_stop = false;
-    ClientFiberArgs * fb_args_list = (ClientFiberArgs *)malloc(sizeof(ClientFiberArgs) * client.num_coroutines_);
+
+    ClientThreadArgs * th_args = (ClientThreadArgs *)malloc(sizeof(ClientThreadArgs) * client.num_coroutines_);
+    pthread_t * th_list = (pthread_t *)malloc(sizeof(pthread_t) * client.num_coroutines_);
     uint32_t coro_num_ops = client.num_local_operations_ / client.num_coroutines_;
     for (int i = 0; i < client.num_coroutines_; i ++) {
-        fb_args_list[i].client = &client;
-        fb_args_list[i].coro_id = i;
-        fb_args_list[i].ops_num = coro_num_ops;
-        fb_args_list[i].ops_st_idx = coro_num_ops * i;
-        fb_args_list[i].num_failed = 0;
-        fb_args_list[i].b = &global_barrier;
-        fb_args_list[i].should_stop = &should_stop;
-        fb_args_list[i].ops_cnt = 0;
+        th_args[i].client = &client;
+        th_args[i].coro_id = i;
+        th_args[i].ops_num = coro_num_ops;
+        th_args[i].ops_st_idx = coro_num_ops * i;
+        th_args[i].num_failed = 0;
+        th_args[i].b = &global_barrier;
+        th_args[i].should_stop = &should_stop;
+        th_args[i].ops_cnt = 0;
+        th_args[i].tpt = 0;
     }
-    fb_args_list[client.num_coroutines_ - 1].ops_num += client.num_local_operations_ % client.num_coroutines_;
-    int sleep_ms = (int)((float)client.workload_run_time_ * 1000);
-    boost::fibers::fiber *encoding_fb;
-    should_stop = false;
+    th_args[client.num_coroutines_ - 1].ops_num += client.num_local_operations_ % client.num_coroutines_;
+
+    // start encoding thread if needed
+    pthread_t encoding_th;
+    void * enc_ctx = NULL;
     if(strcmp(args->op_type, "INSERT") == 0){
-        encoding_fb = new boost::fibers::fiber(client_encoding_fiber, &should_stop, &client);
+        auto * e = (decltype(enc_ctx))malloc(sizeof(void*)*1);
+        EncArg * ea = (EncArg *)malloc(sizeof(EncArg));
+        ea->should_stop = &should_stop;
+        ea->client = &client;
+        enc_ctx = ea;
+        pthread_create(&encoding_th, NULL, encoding_thread_func, ea);
     }
-    boost::fibers::fiber fb_list[client.num_coroutines_];
+
+    // start worker threads
     for (int i = 0; i < client.num_coroutines_; i ++) {
-        boost::fibers::fiber fb(client_ops_fb_cnt_ops_cont, &fb_args_list[i]);
-        fb_list[i] = std::move(fb);
+        pthread_create(&th_list[i], NULL, client_ops_thread, &th_args[i]);
     }
-    global_barrier.wait();
-    boost::fibers::fiber timer_fb(timer_fb_func_ms, &should_stop, sleep_ms);
-    timer_fb.join();
+
+    // release workers
+    pthread_barrier_wait(&global_barrier);
+
+    int sleep_ms = (int)((float)client.workload_run_time_ * 1000);
+    struct timespec ts;
+    ts.tv_sec = sleep_ms / 1000;
+    ts.tv_nsec = (sleep_ms % 1000) * 1000000;
+    nanosleep(&ts, NULL);
+
     client.print_mes("time tick finished~");
+    should_stop = true;
+
     uint32_t ops_cnt = 0;
     uint32_t num_failed = 0;
     uint64_t tpt = 0;
     for (int i = 0; i < client.num_coroutines_; i ++) {
-        fb_list[i].join();
-        ops_cnt += fb_args_list[i].ops_cnt;
-        num_failed += fb_args_list[i].num_failed;
-        tpt += fb_args_list[i].tpt;
+        pthread_join(th_list[i], NULL);
+        ops_cnt += th_args[i].ops_cnt;
+        num_failed += th_args[i].num_failed;
+        tpt += th_args[i].tpt;
     }
     if(strcmp(args->op_type, "INSERT") == 0){
-        encoding_fb->join();
+        pthread_join(encoding_th, NULL);
         client.print_mes("encoding join~");
     }
     args->ret_num_ops = ops_cnt;
