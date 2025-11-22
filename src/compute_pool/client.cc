@@ -579,6 +579,7 @@ int Client::init_log(){
         client_log->log_list[server_id].remote_rp_addr = remote_addr + sizeof(uint64_t) * 2;
         client_log->log_list[server_id].remote_log_entry_addr = remote_addr + sizeof(uint64_t) * 3;
     }
+    return 0;
 }
 
 void Client::mm_alloc_to_subtable_entry(RaceHashSubtableEntry & entry, ClientMMAllocSubtableCtx & mmctx){
