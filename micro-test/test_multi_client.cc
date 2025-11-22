@@ -99,13 +99,13 @@ typedef struct TagClientThreadArgs {
     pthread_barrier_t * b;
     uint32_t ops_cnt;
     uint32_t num_failed;
-    uint64_t tpt;
-} ClientThreadArgs;
-
-void * client_ops_thread(void * arg) {
+    typedef struct TagEncArg {
+        volatile bool * should_stop;
+        Client * client;
+    } EncArg;
     ClientThreadArgs * a = (ClientThreadArgs *)arg;
     Client * client = a->client;
-    if (a->ops_cnt == 0) {
+        EncArg * p = (EncArg *)arg;
         client->init_kvreq_space(a->coro_id, a->ops_st_idx, a->ops_num);
     }
     // wait for all threads to be ready
@@ -155,8 +155,7 @@ void * encoding_thread_func(void * arg) {
     Client * client = p->client;
     while (*should_stop == false) {
         client->encoding_check_async();
-        usleep(1000);
-    }
+            EncArg * ea = (EncArg *)malloc(sizeof(EncArg));
     // wait for outstanding encoding
     while (client->ectx->if_encoding) {
         usleep(1000);
@@ -328,7 +327,8 @@ int main(int argc, char ** argv) {
         client_args_list[i].ret_num_ops = 0;
         client_args_list[i].ret_num_failed = 0;
         client_args_list[i].num_threads = num_clients;
-        sprintf(client_args_list[i].op_type, op);
+        strncpy(client_args_list[i].op_type, op, sizeof(client_args_list[i].op_type) - 1);
+        client_args_list[i].op_type[sizeof(client_args_list[i].op_type) - 1] = '\0';
         pthread_t tid;
         pthread_create(&tid, NULL, run_client, &client_args_list[i]);
         tid_list[i] = tid;
@@ -350,7 +350,7 @@ int main(int argc, char ** argv) {
     */
     uint64_t tpt;
     printf("start write write tpt~\n");
-    sprintf(out_fname, "results/op_%s-value%d-clients%d-threads%d-tpt-vec.txt", op,
+    snprintf(out_fname, sizeof(out_fname), "results/op_%s-value%d-clients%d-threads%d-tpt-vec.txt", op,
         config.value_size, config.all_clients * config.num_cn, config.server_id);
     of = fopen(out_fname, "w");
     cout << "of:" << of << endl;
@@ -358,8 +358,8 @@ int main(int argc, char ** argv) {
     if(strcmp(op, "DELETE") == 0){
         tpt = total_num_ops - total_num_failed;
     }
-    printf("op:%s num client:%d total_num_ops:%d total_num_failed:%d tpt:%d workload_run_time:%f\n", 
-        op, config.all_clients * config.num_cn, total_num_ops, total_num_failed, tpt, config.workload_run_time);
-    fprintf(of, "%d %d %d\n", total_num_ops, total_num_failed, tpt);
+    printf("op:%s num client:%d total_num_ops:%d total_num_failed:%d tpt:%llu workload_run_time:%f\n", 
+        op, config.all_clients * config.num_cn, total_num_ops, total_num_failed, (unsigned long long)tpt, config.workload_run_time);
+    fprintf(of, "%d %d %llu\n", total_num_ops, total_num_failed, (unsigned long long)tpt);
     fclose(of);
 }
