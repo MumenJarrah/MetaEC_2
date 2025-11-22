@@ -3289,6 +3289,7 @@ int Client::kv_insert(KVReqCtx * ctx) {
 
 int Client::kv_insert_only_buffer(KVReqCtx * ctx){
     kv_insert_buffer(ctx);
+    return 0;
 }
 
 int Client::kv_insert_posibility_crash_sync(KVReqCtx * ctx){
