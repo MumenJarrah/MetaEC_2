@@ -734,6 +734,7 @@ int Client::init_all_hash_subtable(){
         }
     }
     print_mes("init all hash subtable finished~");
+    return 0;
 }
 
 bool Client::init_is_finished() {
