@@ -114,10 +114,14 @@ void * client_ops_thread(void * arg) {
     uint32_t cnt = a->ops_cnt;
     uint32_t num_failed = 0;
     while (*a->should_stop == false && a->ops_num != 0) {
+        // Check should_stop flag before calling potentially blocking operations
+        if (*a->should_stop == true) break;
+        
         uint32_t idx = cnt % a->ops_num;
         KVReqCtx * ctx = &client->kv_req_ctx_list_[idx + a->ops_st_idx];
         ctx->should_stop = a->should_stop;
         ctx->pre_ctx_index = idx;
+        
         switch (ctx->req_type) {
         case KV_REQ_SEARCH: {
             void * search_addr = client->kv_search(ctx);
@@ -145,6 +149,8 @@ void * client_ops_thread(void * arg) {
         a->ops_cnt = cnt;
     }
     a->num_failed = num_failed;
+    printf("Thread %u exiting with %u ops completed, %u failed\n", a->coro_id, cnt, num_failed);
+    fflush(stdout);
     return NULL;
 }
 // Encoding thread argument structure
@@ -231,8 +237,14 @@ int test_client_tpt_thread(Client & client, RunClientArgs * args) {
     uint32_t ops_cnt = 0;
     uint32_t num_failed = 0;
     uint64_t tpt = 0;
+    
+    // Join threads with a reasonable wait
+    printf("Waiting for worker threads to finish...\n");
     for (int i = 0; i < client.num_coroutines_; i ++) {
+        printf("Joining thread %d...\n", i);
+        fflush(stdout);
         pthread_join(th_list[i], NULL);
+        printf("Thread %d joined\n", i);
         ops_cnt += th_args[i].ops_cnt;
         num_failed += th_args[i].num_failed;
         tpt += th_args[i].tpt;
