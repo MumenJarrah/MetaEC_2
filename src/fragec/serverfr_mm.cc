@@ -18,6 +18,17 @@ ServerFRMM::ServerFRMM(uint64_t server_base_addr, uint64_t base_len,
     int port_flag = PROT_READ | PROT_WRITE;
     int mm_flag   = MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_HUGETLB | MAP_HUGE_2MB;
     data_ = mmap((void *)this->base_addr_, this->base_len_, port_flag, mm_flag, -1, 0);
+    if (data_ == MAP_FAILED) {
+        printf("ERROR: mmap failed for address 0x%lx with size 0x%lx\n", this->base_addr_, this->base_len_);
+        printf("Retrying without MAP_FIXED flag...\n");
+        data_ = mmap(NULL, this->base_len_, port_flag, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB | MAP_HUGE_2MB, -1, 0);
+        if (data_ == MAP_FAILED) {
+            printf("ERROR: mmap failed even without MAP_FIXED\n");
+            exit(1);
+        }
+        this->base_addr_ = (uint64_t)data_;
+        printf("New base_addr: 0x%lx\n", this->base_addr_);
+    }
     client_meta_area_off_ = 0;
     client_meta_area_len_ = META_AREA_LEN;
     client_gc_area_off_ = this->client_meta_area_len_;
@@ -190,6 +201,26 @@ int ServerFRMM::init_subtable() {
     big_subtable_addr = small_subtable_addr + max_small_subtable * roundup_256(SUBTABLE_LEN);
     cout << "max avaliable small subtables:" << max_small_subtable << endl;
     cout << "max avaliable big subtables:" << max_big_subtable << endl;
+    
+    uint64_t total_subtable_size = max_small_subtable * roundup_256(SUBTABLE_LEN) + 
+                                    max_big_subtable * roundup_256(BIG_SUBTABLE_LEN);
+    uint64_t end_addr = big_subtable_addr + max_big_subtable * roundup_256(BIG_SUBTABLE_LEN);
+    
+    printf("Subtable memory layout:\n");
+    printf("  small_subtable_addr: 0x%lx\n", small_subtable_addr);
+    printf("  big_subtable_addr: 0x%lx\n", big_subtable_addr);
+    printf("  end_addr: 0x%lx\n", end_addr);
+    printf("  base_addr_: 0x%lx\n", base_addr_);
+    printf("  base_len_: 0x%lx\n", base_len_);
+    printf("  base_addr_ + base_len_: 0x%lx\n", base_addr_ + base_len_);
+    
+    if (end_addr > base_addr_ + base_len_) {
+        printf("ERROR: Subtable addresses exceed allocated memory!\n");
+        printf("  Required end: 0x%lx\n", end_addr);
+        printf("  Available end: 0x%lx\n", base_addr_ + base_len_);
+        exit(1);
+    }
+    
     small_subtable_alloc_map_.resize(max_small_subtable);
     for (int i = 0; i < max_small_subtable; i ++) {
         uint64_t cur_subtable_addr = (uint64_t)small_subtable_addr + i * roundup_256(SUBTABLE_LEN);
