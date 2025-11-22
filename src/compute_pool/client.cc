@@ -281,7 +281,7 @@ void Client::init_all_hash_table_mem(){
 
 int Client::init_all_hash_index(){
     hashring_table = new HashRingTable;
-    int ret;
+    int ret = 0;
     init_all_hash_table_mem();
     if(is_recovery == false){
         if (client_id - num_memory_ == 0) {
@@ -300,6 +300,7 @@ int Client::init_all_hash_index(){
         gettimeofday(&kv_ops_recover_et_, NULL);
     }
     print_mes("Init all subtable finished~");
+    return ret;
 }
 
 void Client::recovery_clear_sr_list(RecoveryCtx *rcctx){
